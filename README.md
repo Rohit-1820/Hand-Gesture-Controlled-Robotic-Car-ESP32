@@ -2,7 +2,7 @@
 
 > A wireless robotic vehicle controlled in real-time through hand gestures using MPU6050 motion sensor and Bluetooth communication between two ESP32 microcontrollers.
 
-![Project Photo]("C:\Users\rohit\OneDrive\Pictures\IMG_20260516_155507.jpg")
+![Project Photo]("C:\Users\rohit\OneDrive\Pictures\robotic_car.jpg.jpg")
 <!-- 👆 Replace with your actual robot photo path -->
 
 ---
@@ -23,8 +23,10 @@
 ---
 
 ## Overview
+This project presents the design and implementation of a Hand Gesture Controlled Robotic Car using ESP32 microcontrollers, MPU6050 accelerometer & gyroscope sensor, and Bluetooth communication.
+The system enables real-time wireless robotic navigation through natural hand gestures. Hand movements(hand tilt and orientation) are detected using the MPU6050 sensor mounted on the transmitter module. The gesture data is processed by an ESP32 microcontroller and transmitted wirelessly via Bluetooth to another ESP32 mounted on the robotic vehicle.
 
-This project implements a **wireless hand gesture-controlled robotic car** using embedded system technology. The MPU6050 sensor detects hand tilt and orientation, the ESP32 processes and transmits commands over Bluetooth, and the receiver ESP32 drives the motors through an L298N motor driver.
+The receiver ESP32 controls the movement of the robotic car through the L298N motor driver using differential drive logic.
 
 No physical remote is needed — tilting your hand controls the car in real time.
 
