@@ -2,7 +2,7 @@
 
 > A wireless robotic vehicle controlled in real-time through hand gestures using MPU6050 motion sensor and Bluetooth communication between two ESP32 microcontrollers.
 
-![Project Photo]("C:\Users\rohit\OneDrive\Pictures\robotic_car.jpg.jpg")
+![Project Photo](docs/images/robot_photo.jpg)
 <!-- 👆 Replace with your actual robot photo path -->
 
 ---
@@ -23,10 +23,12 @@
 ---
 
 ## Overview
+
 This project presents the design and implementation of a Hand Gesture Controlled Robotic Car using ESP32 microcontrollers, MPU6050 accelerometer & gyroscope sensor, and Bluetooth communication.
 The system enables real-time wireless robotic navigation through natural hand gestures. Hand movements(hand tilt and orientation) are detected using the MPU6050 sensor mounted on the transmitter module. The gesture data is processed by an ESP32 microcontroller and transmitted wirelessly via Bluetooth to another ESP32 mounted on the robotic vehicle.
 
 The receiver ESP32 controls the movement of the robotic car through the L298N motor driver using differential drive logic.
+
 
 No physical remote is needed — tilting your hand controls the car in real time.
 
@@ -48,11 +50,13 @@ The system is divided into two units — **Transmitter** and **Receiver** — co
 
 **Transmitter unit:**
 - MPU6050 sensor detects hand orientation via I2C
-- ESP32 processes sensor data and maps tilt to movement commands
+- ESP32 applies calibration offsets and stability filtering
+- Only sends command when gesture changes — no flooding
 - Commands transmitted wirelessly via Bluetooth Classic
 
 **Receiver unit:**
 - ESP32 receives Bluetooth commands
+- Acts only when command changes (deduplication)
 - L298N motor driver controls DC motors using differential drive logic
 - Robot performs forward, backward, left, right, and stop movements
 
@@ -76,7 +80,7 @@ The system is divided into two units — **Transmitter** and **Receiver** — co
 
 ### Transmitter — ESP32 ↔ MPU6050
 
-![ESP32 MPU6050 Wiring]("C:\Users\rohit\OneDrive\Pictures\transmitter.jpg")
+![ESP32 MPU6050 Wiring](docs/images/transmitter_wiring.jpg)
 <!-- 👆 Add your actual wiring photo here -->
 
 | ESP32 Pin | MPU6050 Pin | Function |
@@ -88,7 +92,7 @@ The system is divided into two units — **Transmitter** and **Receiver** — co
 
 ### Receiver — ESP32 ↔ L298N Motor Driver
 
-![L298N Wiring]("C:\Users\rohit\OneDrive\Pictures\receiver.jpeg")
+![L298N Wiring](docs/images/receiver_wiring.jpg)
 <!-- 👆 Add your actual wiring photo here -->
 
 | ESP32 Pin | L298N Pin | Function |
@@ -125,29 +129,40 @@ The system is divided into two units — **Transmitter** and **Receiver** — co
 
 ## Gesture Mapping
 
-The MPU6050 accelerometer measures tilt along X and Y axes. After calibration offset correction, values are compared against thresholds to generate movement commands.
+The MPU6050 accelerometer measures tilt along X and Y axes. After calibration offset correction, the dominant axis is identified and compared against thresholds to generate a clean, flicker-free movement command.
 
-| Hand Gesture | Sensor Condition | Command Sent | Robot Movement |
-|---|---|---|---|
-| Tilt Forward | Y axis > 3 | `F` | Move Forward |
-| Tilt Backward | Y axis < -3 | `B` | Move Backward |
-| Tilt Right | X axis > 3 | `R` | Turn Right |
-| Tilt Left | X axis < -3 | `L` | Turn Left |
-| Neutral / Flat | \|X\| < 2 and \|Y\| < 2 | `S` | Stop |
+| Hand Gesture | Dominant Axis | Sensor Condition | Command Sent | Robot Movement |
+|---|---|---|---|---|
+| Tilt Forward | Y | Y > 3 | `F` | Move Forward |
+| Tilt Backward | Y | Y < -3 | `B` | Move Backward |
+| Tilt Right | X | X > 3 | `R` | Turn Right |
+| Tilt Left | X | X < -3 | `L` | Turn Left |
+| Neutral / Flat | — | \|X\| < 2 and \|Y\| < 2 | `S` | Stop |
 
-**Gesture processing logic:**
+**Key software improvements in the transmitter:**
 
 ```cpp
-int x = (Ay - y_offset) / 1000;
-int y = (Ax - x_offset) / 1000;
+// 1. Dominant axis selection — prevents diagonal confusion
+if (abs(y) >= abs(x)) {
+    if      (y > 3)  detectedCmd = 'F';
+    else if (y < -3) detectedCmd = 'B';
+} else {
+    if      (x > 3)  detectedCmd = 'R';
+    else if (x < -3) detectedCmd = 'L';
+}
 
-char cmd = 'S';
-if (abs(x) < 2 && abs(y) < 2)  cmd = 'S';   // dead-zone → stop
-else if (y > 3)                 cmd = 'F';   // forward tilt
-else if (y < -3)                cmd = 'B';   // backward tilt
-else if (x > 3)                 cmd = 'R';   // right tilt
-else if (x < -3)                cmd = 'L';   // left tilt
+// 2. Stability filter — gesture must appear 3 times in a row before accepting
+if (detectedCmd == pendingCmd) stableCount++;
+else { pendingCmd = detectedCmd; stableCount = 0; }
+
+// 3. Send only on change — no command flooding to receiver
+if (stableCount >= 3 && detectedCmd != lastCmd) {
+    SerialBT.write(detectedCmd);
+    lastCmd = detectedCmd;
+}
 ```
+
+These three improvements together eliminate the two main issues seen in basic implementations — continuous rotation and locking in one direction.
 
 ---
 
@@ -163,14 +178,14 @@ Left and right motor pairs are controlled independently to achieve all direction
 | Turn Right | Forward ↑ | Backward ↓ |
 | Stop | Stop | Stop |
 
-**Motor control functions:**
+**Motor control functions (receiver):**
 
 ```cpp
 void forward()  { digitalWrite(IN1,HIGH); digitalWrite(IN2,LOW);  digitalWrite(IN3,HIGH); digitalWrite(IN4,LOW);  }
 void backward() { digitalWrite(IN1,LOW);  digitalWrite(IN2,HIGH); digitalWrite(IN3,LOW);  digitalWrite(IN4,HIGH); }
-void turnLeft() { digitalWrite(IN1,LOW);  digitalWrite(IN2,HIGH); digitalWrite(IN3,HIGH); digitalWrite(IN4,LOW);  }
-void turnRight(){ digitalWrite(IN1,HIGH); digitalWrite(IN2,LOW);  digitalWrite(IN3,LOW);  digitalWrite(IN4,HIGH); }
-void stopAll()  { digitalWrite(IN1,LOW);  digitalWrite(IN2,LOW);  digitalWrite(IN3,LOW);  digitalWrite(IN4,LOW);  }
+void left()     { digitalWrite(IN1,HIGH); digitalWrite(IN2,LOW);  digitalWrite(IN3,LOW);  digitalWrite(IN4,HIGH); }
+void right()    { digitalWrite(IN1,LOW);  digitalWrite(IN2,HIGH); digitalWrite(IN3,HIGH); digitalWrite(IN4,LOW);  }
+void stopMotors(){ digitalWrite(IN1,LOW); digitalWrite(IN2,LOW);  digitalWrite(IN3,LOW);  digitalWrite(IN4,LOW);  }
 ```
 
 ---
@@ -266,12 +281,15 @@ uint8_t address[6] = {0xXX, 0xXX, 0xXX, 0xXX, 0xXX, 0xXX};
 
 Upload `transmitter/transmitter.ino` to the second ESP32.
 
-### Step 4 — Power Up & Test
+### Step 4 — Power Up & Calibrate
 
 1. Power the robot (receiver) with the Li-Po battery
 2. Power the transmitter with a USB power bank
-3. Wait ~3–5 seconds for Bluetooth pairing
-4. Tilt your hand to control the robot!
+3. **Keep your hand flat and still for 3 seconds** during calibration
+4. Wait for "Ready" message in Serial Monitor
+5. Tilt your hand to control the robot!
+
+> ⚠️ **Important:** If hand is tilted during calibration, all gestures will be offset. Always calibrate with hand flat.
 
 ---
 
